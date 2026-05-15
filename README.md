@@ -139,6 +139,10 @@ Buildspec phases live under `[build]`:
 
 You can also use `melon-grow <spec> --repo <repo>` as a convenience wrapper that runs build + index regeneration.
 
+Notes:
+
+- Buildspec command lines should be POSIX-shell friendly for Linux distro usage (see `examples/hello/hello.build.ini`).
+
 ## Release Checklist
 
 - Packages are reproducible on the builder machine (same inputs produce same tarball).
