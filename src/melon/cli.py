@@ -27,6 +27,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=".melon/repo",
         help="repo directory containing packages/ (writes index.json into this directory)",
     )
+    repo_render = repo_subparsers.add_parser("render", help="generate a simple index.html listing for a repo folder")
+    repo_render.add_argument(
+        "--dir",
+        default="docs",
+        help="repo directory containing index.json and packages/ (writes index.html into this directory)",
+    )
 
     sniff = subparsers.add_parser("sniff", aliases=["-Sn"], help="search packages in the repo")
     sniff.add_argument("query", nargs="?", default="")
@@ -84,6 +90,10 @@ def main() -> None:
                 repo_dir = Path(args.dir).resolve()
                 count = service.build_repo_index(repo_dir)
                 print(f":: wrote {count} package(s) to {repo_dir / 'index.json'}")
+            elif args.repo_command == "render":
+                repo_dir = Path(args.dir).resolve()
+                count = service.render_repo_html(repo_dir)
+                print(f":: wrote index.html for {count} package(s) to {repo_dir / 'index.html'}")
         elif args.command in {"sniff", "-Sn"}:
             for pkg in service.sniff(args.query):
                 print(f"{pkg.name} {pkg.version} - {pkg.description}")

@@ -83,6 +83,82 @@ class MelonService:
         self.log(f"generated repo index at {repo_dir / 'index.json'} with {len(packages)} package(s)")
         return len(packages)
 
+    def render_repo_html(self, repo_dir: Path) -> int:
+        index_path = repo_dir / "index.json"
+        if not index_path.exists():
+            raise FileNotFoundError(f"missing {index_path}; run `melon repo index --dir {repo_dir}` first")
+        data = json.loads(index_path.read_text(encoding="utf-8"))
+        packages: list[dict] = [data[name] for name in sorted(data.keys())]
+
+        html_path = repo_dir / "index.html"
+        template = html_path.read_text(encoding="utf-8") if html_path.exists() else _default_repo_html()
+
+        rows: list[str] = []
+        for pkg in packages:
+            name = pkg.get("name", "")
+            ver = pkg.get("version", "")
+            desc = pkg.get("description", "")
+            pkg_url = pkg.get("package_url", f"packages/{name}-{ver}.tar.gz")
+            sha = pkg.get("sha256", "")
+            rows.append(
+                "<tr>"
+                f"<td><code>{_html_escape(name)}</code></td>"
+                f"<td><code>{_html_escape(ver)}</code></td>"
+                f"<td>{_html_escape(desc)}</td>"
+                f"<td><a href=\"./{_html_escape(pkg_url)}\">{_html_escape(Path(pkg_url).name)}</a></td>"
+                f"<td><code>{_html_escape(sha)}</code></td>"
+                "</tr>"
+            )
+
+        marker = "<!-- melon-repo:packages -->"
+        if marker not in template:
+            raise ValueError(f"{html_path} is missing marker {marker}")
+        out = template.replace(marker, marker + "\n        " + "\n        ".join(rows))
+        html_path.write_text(out, encoding="utf-8")
+        self.log(f"rendered repo index html at {html_path} with {len(packages)} package(s)")
+        return len(packages)
+
+
+def _html_escape(value: str) -> str:
+    return (
+        (value or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+def _default_repo_html() -> str:
+    return """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Melon Repo</title>
+  </head>
+  <body>
+    <h1>Melon Repository</h1>
+    <p>Repo index: <a href="./index.json"><code>index.json</code></a></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Package</th>
+          <th>Version</th>
+          <th>Description</th>
+          <th>Download</th>
+          <th>SHA256</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- melon-repo:packages -->
+      </tbody>
+    </table>
+  </body>
+</html>
+"""
+
     def sniff(self, query: str = "") -> list[PackageMeta]:
         packages = self.repo.load()
         values = list(packages.values())

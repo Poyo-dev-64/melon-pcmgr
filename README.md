@@ -88,11 +88,36 @@ Remote repos are expected to expose:
 
 Each package entry in `index.json` should include a `sha256` checksum and may include `package_url`. Relative `package_url` values are resolved from the repository base URL.
 
+## GitHub Pages hosting (moderator git-push workflow)
+
+Recommended layout for GitHub Pages is to publish from `docs/` on `main`:
+
+- `docs/index.json`
+- `docs/index.html`
+- `docs/packages/*.tar.gz`
+
+Moderator workflow:
+
+1. Build a package into the Pages folder:
+   - `melon-grow yourpkg.build.ini --repo docs`
+   - or `melon-build yourpkg.build.ini --out docs/packages`
+   - or `melon-pack yourpkg.pkg --out docs/packages`
+2. Regenerate the index:
+   - `melon repo index --dir docs`
+3. Regenerate the HTML listing page:
+   - `melon repo render --dir docs`
+4. `git add docs && git commit && git push`
+
+Users can:
+
+- Install via CLI: `melon repo set https://<user>.github.io/<repo> ; melon hydrate ; melon plant <pkg>`
+- Or download tarballs directly by visiting the Pages site and clicking links.
+
 ## Builder workflow (publish prebuilt packages)
 
 This is the intended model: the builder machine creates the `.tar.gz`, publishes it to the repo, and clients only download and install the already-built package.
 
-1. Build package archives with `melon-grow` into your repo folder's `packages/`.
+1. Build package archives into your repo folder's `packages/` (via `melon-build`, `melon-pack`, or `melon-grow` as a wrapper).
 2. Generate/refresh `index.json` with `melon repo index --dir <repo-folder>`.
 3. Publish the repo folder so it serves `index.json` and `packages/*.tar.gz` (any static file host works).
 
