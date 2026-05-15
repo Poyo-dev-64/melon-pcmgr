@@ -1,0 +1,12 @@
+.melon/
+client/
+relclient/
+txclient/
+__pycache__/
+*.pyc
+dist/
+build/
+.pytest_cache/
+.venv/
+.env
+.DS_Store
