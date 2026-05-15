@@ -1,0 +1,11 @@
+name: broken
+version: 1.0.0
+desc: Package with a failing post-install hook
+url: https://example.invalid/broken.tar.gz
+deps:
+config:
+make:
+install:
+remove:
+patch:
+sha256:

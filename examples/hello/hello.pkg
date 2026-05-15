@@ -1,0 +1,11 @@
+name: hello
+version: 1.0.0
+desc: Example Melon package
+url: https://example.invalid/hello.tar.gz
+deps:
+config: ./configure --prefix=/usr
+make: make
+install: make DESTDIR=/usr install
+remove:
+patch:
+sha256:

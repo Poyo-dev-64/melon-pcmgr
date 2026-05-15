@@ -1,0 +1,26 @@
+{
+  "files": [
+    "usr/bin/hello.txt"
+  ],
+  "held": false,
+  "meta": {
+    "build_configure": [
+      "./configure --prefix=/usr"
+    ],
+    "build_make": [
+      "make"
+    ],
+    "dependencies": [],
+    "description": "Example Melon package",
+    "install_steps": [
+      "make DESTDIR=/usr install"
+    ],
+    "name": "hello",
+    "package_url": "",
+    "patches": [],
+    "remove_steps": [],
+    "sha256": "16edea0f514931d33d3891b2447d0faba903d909131c5c5acc72e84206d55efe",
+    "source_url": "https://example.invalid/hello.tar.gz",
+    "version": "1.0.0"
+  }
+}
