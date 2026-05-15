@@ -4,12 +4,13 @@
 
 ## Current scope
 
-- `melon-grow` fetches, verifies, and installs a prebuilt package from a configured repo.
+- `melon plant` downloads, verifies SHA256, and installs a prebuilt package from a configured repo.
+- `melon-grow` is a moderator wrapper: builds a package from a buildspec and regenerates `index.json`.
 - `melon-pack` packages already-built files into a `.tar.gz` from a simple `.pkg` recipe plus a `files/` directory.
 - `melon repo set <url>` stores a remote repository base URL.
 - `melon hydrate` pulls `index.json` from a configured remote repo or scans local repo archives.
 - `melon sniff` searches the repo index.
-- `melon plant` resolves dependencies, downloads package archives, verifies SHA256 checksums, and installs payload files into `.melon/root`.
+- `melon plant` resolves dependencies, downloads package archives, verifies SHA256 checksums, and installs payload files into the target root.
 - Install and remove operations are transactional: if extraction or a lifecycle hook fails, Melon restores files and package metadata.
 - `melon squeeze` removes installed package files.
 - `melon preserve` and `melon thaw` manage held packages.
@@ -110,6 +111,8 @@ Buildspec phases live under `[build]`:
 - `build =` (multi-line commands)
 - `check =` (multi-line commands)
 - `install =` (multi-line commands; must install into `$DESTDIR`)
+
+You can also use `melon-grow <spec> --repo <repo>` as a convenience wrapper that runs build + index regeneration.
 
 ## Release Checklist
 
