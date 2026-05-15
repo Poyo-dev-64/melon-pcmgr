@@ -182,7 +182,7 @@ class MelonService:
             self.db.save(installed)
             self._run_hook(script_dir, "post-remove", package.meta)
             for rel_path in moved_files:
-                self._remove_empty_parents((self.paths.install_root / rel_path).parent)
+                self._remove_empty_parents((self.paths.target_root / rel_path).parent)
         except Exception:
             installed[package_name] = package
             self.db.save(installed)
@@ -276,7 +276,7 @@ class MelonService:
 
     def _remove_empty_parents(self, start: Path) -> None:
         current = start
-        while current != self.paths.install_root and current.exists():
+        while current != self.paths.target_root and current.exists():
             try:
                 current.rmdir()
             except OSError:
@@ -327,37 +327,51 @@ class MelonService:
         return file_sha256(archive_path) == package.sha256
 
     def _extract_payload_to_stage(self, tar: tarfile.TarFile, staging_dir: Path) -> list[Path]:
-        staged_files: list[Path] = []
+        staged_paths: list[Path] = []
         for member in tar.getmembers():
-            if not member.isfile() or not member.name.startswith("payload/"):
+            if not member.name.startswith("payload/"):
                 continue
             relative = Path(member.name).relative_to("payload")
-            destination = staging_dir / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            extracted = tar.extractfile(member)
-            if extracted is None:
-                continue
-            with extracted:
-                destination.write_bytes(extracted.read())
-            staged_files.append(relative)
-        return staged_files
+            self._safe_extract_payload_member(tar, member, staging_dir, relative)
+            staged_paths.append(relative)
+        return staged_paths
 
-    def _commit_staged_files(self, staged_files: list[Path], staging_dir: Path) -> list[str]:
+    def _commit_staged_files(self, staged_paths: list[Path], staging_dir: Path) -> list[str]:
         installed_files: list[str] = []
-        for relative in staged_files:
+        for relative in staged_paths:
             staged_path = staging_dir / relative
-            destination = self.paths.install_root / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(staged_path, destination)
-            installed_files.append(normalize_rel_path(relative))
+            destination = self.paths.target_root / relative
+
+            if staged_path.is_symlink():
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if destination.exists() or destination.is_symlink():
+                    destination.unlink()
+                destination.symlink_to(os.readlink(staged_path))
+                installed_files.append(normalize_rel_path(relative))
+                continue
+
+            if staged_path.is_dir():
+                destination.mkdir(parents=True, exist_ok=True)
+                installed_files.append(normalize_rel_path(relative))
+                continue
+
+            if staged_path.is_file():
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(staged_path, destination)
+                installed_files.append(normalize_rel_path(relative))
         return installed_files
 
     def _rollback_installed_files(self, installed_files: list[str]) -> None:
         for rel_path in reversed(installed_files):
-            target = self.paths.install_root / rel_path
-            if target.exists():
+            target = self.paths.target_root / rel_path
+            if target.is_symlink() or target.is_file():
                 target.unlink()
                 self._remove_empty_parents(target.parent)
+            elif target.is_dir():
+                try:
+                    target.rmdir()
+                except OSError:
+                    pass
 
     def _extract_scripts(self, tar: tarfile.TarFile, script_dir: Path) -> None:
         for member in tar.getmembers():
@@ -387,7 +401,7 @@ class MelonService:
         env = os.environ.copy()
         env["MELON_PACKAGE_NAME"] = package.name
         env["MELON_PACKAGE_VERSION"] = package.version
-        env["MELON_INSTALL_ROOT"] = str(self.paths.install_root)
+        env["MELON_INSTALL_ROOT"] = str(self.paths.target_root)
         env["MELON_STATE_DIR"] = str(self.paths.state_dir)
         command = self._script_command(script_path)
         completed = subprocess.run(
@@ -440,7 +454,7 @@ class MelonService:
         moved_files: list[Path] = []
         for rel_path_str in files:
             relative = Path(rel_path_str)
-            source = self.paths.install_root / relative
+            source = self.paths.target_root / relative
             if not source.exists():
                 continue
             backup = backup_dir / relative
@@ -456,7 +470,7 @@ class MelonService:
             if not source.is_file():
                 continue
             relative = source.relative_to(backup_dir)
-            destination = self.paths.install_root / relative
+            destination = self.paths.target_root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(source), str(destination))
 
@@ -465,3 +479,38 @@ class MelonService:
         path = self.paths.transactions_dir / f"{package_name}-{stamp}"
         path.mkdir(parents=True, exist_ok=False)
         return path
+
+    def _safe_extract_payload_member(
+        self,
+        tar: tarfile.TarFile,
+        member: tarfile.TarInfo,
+        staging_root: Path,
+        relative: Path,
+    ) -> None:
+        staging_root = staging_root.resolve()
+        out_path = (staging_root / relative).resolve()
+        if not str(out_path).startswith(str(staging_root)):
+            raise RuntimeError(f"unsafe path in package payload: {member.name}")
+
+        if member.isdir():
+            out_path.mkdir(parents=True, exist_ok=True)
+            return
+
+        if member.issym():
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            if out_path.exists() or out_path.is_symlink():
+                out_path.unlink()
+            out_path.symlink_to(member.linkname)
+            return
+
+        if member.isfile():
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            extracted = tar.extractfile(member)
+            if extracted is None:
+                return
+            with extracted, out_path.open("wb") as handle:
+                shutil.copyfileobj(extracted, handle)
+            try:
+                os.chmod(out_path, member.mode)
+            except PermissionError:
+                pass

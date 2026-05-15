@@ -10,7 +10,8 @@ from .storage import MelonPaths
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="melon", description="Sandboxed Melon package manager")
-    parser.add_argument("--root", default=".", help="workspace root for Melon state")
+    parser.add_argument("--root", default=".", help="install root (e.g. / or /mnt/lfs); workspace root if --layout=workspace")
+    parser.add_argument("--layout", choices=["workspace", "system"], default="workspace", help="where Melon stores its state and what install root means")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("hydrate", aliases=["-Hy"], help="sync the repo index from local packages")
@@ -59,7 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    service = MelonService(MelonPaths(Path(args.root).resolve()))
+    root = Path(args.root).resolve()
+    paths = MelonPaths.system(root) if args.layout == "system" else MelonPaths.workspace(root)
+    service = MelonService(paths)
 
     try:
         if args.command in {"hydrate", "-Hy"}:

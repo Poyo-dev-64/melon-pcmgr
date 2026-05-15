@@ -9,11 +9,23 @@ from .models import InstalledPackage, PackageMeta, installed_from_dict, package_
 
 @dataclass(slots=True)
 class MelonPaths:
-    root: Path
+    install_root: Path
+    layout: str = "workspace"
+
+    @staticmethod
+    def workspace(root: Path) -> "MelonPaths":
+        return MelonPaths(install_root=root.resolve(), layout="workspace")
+
+    @staticmethod
+    def system(install_root: Path) -> "MelonPaths":
+        # install_root can be "/" (live system) or a chroot root like "/mnt/lfs".
+        return MelonPaths(install_root=install_root.resolve(), layout="system")
 
     @property
     def state_dir(self) -> Path:
-        return self.root / ".melon"
+        if self.layout == "system":
+            return self.install_root / "var" / "lib" / "melon"
+        return self.install_root / ".melon"
 
     @property
     def db_dir(self) -> Path:
@@ -37,10 +49,14 @@ class MelonPaths:
 
     @property
     def repo_config(self) -> Path:
+        if self.layout == "system":
+            return self.install_root / "etc" / "melon" / "repo.json"
         return self.repo_dir / "config.json"
 
     @property
     def cache_dir(self) -> Path:
+        if self.layout == "system":
+            return self.install_root / "var" / "cache" / "melon"
         return self.state_dir / "cache"
 
     @property
@@ -53,10 +69,15 @@ class MelonPaths:
 
     @property
     def logs_dir(self) -> Path:
+        if self.layout == "system":
+            return self.install_root / "var" / "log" / "melon"
         return self.state_dir / "logs"
 
     @property
-    def install_root(self) -> Path:
+    def target_root(self) -> Path:
+        # Where package payload files are installed.
+        if self.layout == "system":
+            return self.install_root
         return self.state_dir / "root"
 
     @property
@@ -77,12 +98,13 @@ class MelonPaths:
             self.package_cache_dir,
             self.transactions_dir,
             self.logs_dir,
-            self.install_root,
+            self.target_root,
         ):
             path.mkdir(parents=True, exist_ok=True)
         if not self.repo_index.exists():
             self.repo_index.write_text("{}", encoding="utf-8")
         if not self.repo_config.exists():
+            self.repo_config.parent.mkdir(parents=True, exist_ok=True)
             self.repo_config.write_text("{}", encoding="utf-8")
         if not self.holds_db.exists():
             self.holds_db.write_text("[]", encoding="utf-8")

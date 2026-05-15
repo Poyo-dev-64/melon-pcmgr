@@ -48,8 +48,11 @@ def build_from_spec(
         stage_dir.mkdir(parents=True, exist_ok=True)
 
         source_root = _prepare_source(spec, sources_dir, build_dir)
-        _run_commands(spec.build_commands, cwd=source_root, env=_base_env(spec, stage_dir))
-        _run_commands(spec.install_commands, cwd=source_root, env=_base_env(spec, stage_dir))
+        env = _base_env(spec, stage_dir)
+        _run_commands(spec.configure_commands, cwd=source_root, env=env)
+        _run_commands(spec.build_commands, cwd=source_root, env=env)
+        _run_commands(spec.check_commands, cwd=source_root, env=env)
+        _run_commands(spec.install_commands, cwd=source_root, env=env)
 
         meta = PackageMeta(
             name=spec.name,

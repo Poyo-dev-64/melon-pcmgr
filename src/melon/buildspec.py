@@ -19,7 +19,9 @@ class BuildSpec:
     subdir: str = ""
     patches: list[str] = field(default_factory=list)
 
+    configure_commands: list[str] = field(default_factory=list)
     build_commands: list[str] = field(default_factory=list)
+    check_commands: list[str] = field(default_factory=list)
     install_commands: list[str] = field(default_factory=list)
 
     # Where files should land inside the target system (clients install into this layout under .melon/root)
@@ -65,7 +67,9 @@ def load_buildspec(path: Path) -> BuildSpec:
         source_sha256=str(source.get("sha256", "")).strip(),
         subdir=str(source.get("subdir", "")).strip(),
         patches=_split_list(source.get("patches", "")),
-        build_commands=lines(build, "commands"),
+        configure_commands=lines(build, "configure"),
+        build_commands=lines(build, "build"),
+        check_commands=lines(build, "check"),
         install_commands=lines(build, "install"),
         prefix=str(build.get("prefix", "/usr")).strip() or "/usr",
     )

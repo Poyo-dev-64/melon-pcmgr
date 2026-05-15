@@ -29,6 +29,25 @@ Melon keeps everything inside the workspace:
 - `.melon/root`: sandboxed install root
 - `.melon/logs`: command logs
 
+## System layout (Linux distro mode)
+
+When you run Melon with `--layout system --root /` (or `--root /mnt/lfs` during bootstrap), it behaves like a real root package manager:
+
+- Installs into the target rootfs directly: `<root>/usr`, `<root>/etc`, `<root>/bin`, etc.
+- Stores state under the target rootfs:
+  - `<root>/var/lib/melon` (db + repo index)
+  - `<root>/var/cache/melon` (downloaded package tarballs + transactions)
+  - `<root>/var/log/melon` (logs)
+  - `<root>/etc/melon/repo.json` (repo config)
+
+Example (LFS-style chroot root):
+
+```bash
+melon --layout system --root /mnt/lfs repo set https://your-host/melon
+melon --layout system --root /mnt/lfs hydrate
+melon --layout system --root /mnt/lfs plant bash
+```
+
 ## Recipe format
 
 Recipes are simple `key: value` files:
@@ -85,6 +104,13 @@ Use `melon-build` when you want a PKGBUILD-like file that drives the build/insta
 3. Run `melon repo index --dir <repo>` to regenerate `index.json`.
 4. Publish the repo folder as static files.
 
+Buildspec phases live under `[build]`:
+
+- `configure =` (multi-line commands)
+- `build =` (multi-line commands)
+- `check =` (multi-line commands)
+- `install =` (multi-line commands; must install into `$DESTDIR`)
+
 ## Release Checklist
 
 - Packages are reproducible on the builder machine (same inputs produce same tarball).
@@ -92,6 +118,15 @@ Use `melon-build` when you want a PKGBUILD-like file that drives the build/insta
 - Repo is served over HTTPS in production.
 - Every package in `index.json` has a valid `sha256` and `package_url`.
 - Clients run `melon hydrate` before installing so they get the latest index.
+
+## Bootstrap prerequisites (LFS-friendly)
+
+Melon is intentionally small and aims to be bootstrappable:
+
+- Python 3 (stdlib only)
+- `tar`/`gzip` support (Python `tarfile` handles this)
+- `patch` executable if you use `[source] patches` in buildspecs
+- A POSIX shell and toolchain for whatever you build (e.g. `sh`, `make`, `gcc`, `binutils`)
 
 ## Example flow
 
