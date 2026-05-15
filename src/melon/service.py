@@ -84,63 +84,39 @@ class MelonService:
         return len(packages)
 
     def render_repo_html(self, repo_dir: Path) -> int:
-        index_path = repo_dir / "index.json"
-        if not index_path.exists():
-            raise FileNotFoundError(f"missing {index_path}; run `melon repo index --dir {repo_dir}` first")
-        data = json.loads(index_path.read_text(encoding="utf-8"))
-        packages: list[dict] = [data[name] for name in sorted(data.keys())]
-
         html_path = repo_dir / "index.html"
-        template = html_path.read_text(encoding="utf-8") if html_path.exists() else _default_repo_html()
-
-        rows: list[str] = []
-        for pkg in packages:
-            name = pkg.get("name", "")
-            ver = pkg.get("version", "")
-            desc = pkg.get("description", "")
-            pkg_url = pkg.get("package_url", f"packages/{name}-{ver}.tar.gz")
-            sha = pkg.get("sha256", "")
-            rows.append(
-                "<tr>"
-                f"<td><code>{_html_escape(name)}</code></td>"
-                f"<td><code>{_html_escape(ver)}</code></td>"
-                f"<td>{_html_escape(desc)}</td>"
-                f"<td><a href=\"./{_html_escape(pkg_url)}\">{_html_escape(Path(pkg_url).name)}</a></td>"
-                f"<td><code>{_html_escape(sha)}</code></td>"
-                "</tr>"
-            )
-
-        marker = "<!-- melon-repo:packages -->"
-        if marker not in template:
-            raise ValueError(f"{html_path} is missing marker {marker}")
-        out = template.replace(marker, marker + "\n        " + "\n        ".join(rows))
-        html_path.write_text(out, encoding="utf-8")
-        self.log(f"rendered repo index html at {html_path} with {len(packages)} package(s)")
-        return len(packages)
-
-
-def _html_escape(value: str) -> str:
-    return (
-        (value or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#39;")
-    )
+        html_path.write_text(_default_repo_html(), encoding="utf-8")
+        self.log(f"wrote repo index html template at {html_path}")
+        return 0
 
 
 def _default_repo_html() -> str:
+    # Static hosting friendly: JS fetches index.json and renders the table.
     return """<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Melon Repo</title>
+    <style>
+      :root { color-scheme: light; }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 32px; }
+      h1 { margin: 0 0 8px; }
+      p { margin: 0 0 18px; color: #444; }
+      table { border-collapse: collapse; width: 100%; max-width: 980px; }
+      th, td { text-align: left; border-bottom: 1px solid #eee; padding: 10px 8px; vertical-align: top; }
+      th { font-size: 12px; letter-spacing: 0.03em; text-transform: uppercase; color: #666; }
+      code { background: #f6f6f6; padding: 1px 6px; border-radius: 6px; }
+      a { color: #0b63ce; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .muted { color: #666; font-size: 13px; }
+    </style>
   </head>
   <body>
     <h1>Melon Repository</h1>
-    <p>Repo index: <a href="./index.json"><code>index.json</code></a></p>
+    <p class="muted">This page is dynamic: it loads <code>index.json</code> and lists packages.</p>
+    <p>Repo index: <a href="./index.json"><code>index.json</code></a> <span id="status" class="muted"></span></p>
+    <p><input id="q" type="search" placeholder="Search packages..." style="width: min(520px, 100%); padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px;" /></p>
     <table>
       <thead>
         <tr>
@@ -152,9 +128,72 @@ def _default_repo_html() -> str:
         </tr>
       </thead>
       <tbody>
-        <!-- melon-repo:packages -->
+        <tr><td colspan="5" class="muted">Loading…</td></tr>
       </tbody>
     </table>
+    <script>
+      const escapeHtml = (s) => String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+
+      const tbody = document.querySelector("tbody");
+      const status = document.getElementById("status");
+      const search = document.getElementById("q");
+
+      let pkgs = [];
+
+      function render(filter) {
+        const q = (filter ?? "").trim().toLowerCase();
+        const list = q
+          ? pkgs.filter(p =>
+              (p.name || "").toLowerCase().includes(q) ||
+              (p.description || "").toLowerCase().includes(q)
+            )
+          : pkgs;
+
+        if (!list.length) {
+          tbody.innerHTML = `<tr><td colspan="5" class="muted">No matches.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = list.map(p => {
+          const name = escapeHtml(p.name);
+          const ver = escapeHtml(p.version);
+          const desc = escapeHtml(p.description || "");
+          const url = escapeHtml(p.package_url || `packages/${p.name}-${p.version}.tar.gz`);
+          const file = escapeHtml(url.split("/").pop());
+          const sha = escapeHtml(p.sha256 || "");
+          return `<tr>
+            <td><code>${name}</code></td>
+            <td><code>${ver}</code></td>
+            <td>${desc}</td>
+            <td><a href="./${url}">${file}</a></td>
+            <td><code>${sha}</code></td>
+          </tr>`;
+        }).join("");
+      }
+
+      async function main() {
+        try {
+          status.textContent = " (loading…)";
+          const res = await fetch("./index.json", { cache: "no-store" });
+          if (!res.ok) throw new Error(`index.json HTTP ${res.status}`);
+          const data = await res.json();
+          pkgs = Object.keys(data).sort().map(k => data[k]);
+          status.textContent = ` (${pkgs.length} package(s))`;
+          render(search.value);
+        } catch (err) {
+          status.textContent = " (failed)";
+          tbody.innerHTML = `<tr><td colspan="5" class="muted">Failed to load index.json: ${escapeHtml(err.message)}</td></tr>`;
+        }
+      }
+
+      search.addEventListener("input", () => render(search.value));
+      main();
+    </script>
   </body>
 </html>
 """

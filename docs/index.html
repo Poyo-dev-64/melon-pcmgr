@@ -20,8 +20,9 @@
   </head>
   <body>
     <h1>Melon Repository</h1>
-    <p class="muted">This page is generated. Packages can be installed via the Melon CLI or downloaded as tarballs.</p>
-    <p>Repo index: <a href="./index.json"><code>index.json</code></a></p>
+    <p class="muted">This page is dynamic: it loads <code>index.json</code> and lists packages. You can install via the Melon CLI or download tarballs.</p>
+    <p>Repo index: <a href="./index.json"><code>index.json</code></a> <span id="status" class="muted"></span></p>
+    <p><input id="q" type="search" placeholder="Search packages..." style="width: min(520px, 100%); padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px;" /></p>
     <table>
       <thead>
         <tr>
@@ -33,9 +34,71 @@
         </tr>
       </thead>
       <tbody>
-        <!-- melon-repo:packages -->
+        <tr><td colspan="5" class="muted">Loading…</td></tr>
       </tbody>
     </table>
+    <script>
+      const escapeHtml = (s) => String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+
+      const tbody = document.querySelector("tbody");
+      const status = document.getElementById("status");
+      const search = document.getElementById("q");
+
+      let pkgs = [];
+
+      function render(filter) {
+        const q = (filter ?? "").trim().toLowerCase();
+        const list = q
+          ? pkgs.filter(p =>
+              (p.name || "").toLowerCase().includes(q) ||
+              (p.description || "").toLowerCase().includes(q)
+            )
+          : pkgs;
+
+        if (!list.length) {
+          tbody.innerHTML = `<tr><td colspan="5" class="muted">No matches.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = list.map(p => {
+          const name = escapeHtml(p.name);
+          const ver = escapeHtml(p.version);
+          const desc = escapeHtml(p.description || "");
+          const url = escapeHtml(p.package_url || `packages/${p.name}-${p.version}.tar.gz`);
+          const file = escapeHtml(url.split("/").pop());
+          const sha = escapeHtml(p.sha256 || "");
+          return `<tr>
+            <td><code>${name}</code></td>
+            <td><code>${ver}</code></td>
+            <td>${desc}</td>
+            <td><a href="./${url}">${file}</a></td>
+            <td><code>${sha}</code></td>
+          </tr>`;
+        }).join("");
+      }
+
+      async function main() {
+        try {
+          status.textContent = " (loading…)";
+          const res = await fetch("./index.json", { cache: "no-store" });
+          if (!res.ok) throw new Error(`index.json HTTP ${res.status}`);
+          const data = await res.json();
+          pkgs = Object.keys(data).sort().map(k => data[k]);
+          status.textContent = ` (${pkgs.length} package(s))`;
+          render(search.value);
+        } catch (err) {
+          status.textContent = " (failed)";
+          tbody.innerHTML = `<tr><td colspan="5" class="muted">Failed to load index.json: ${escapeHtml(err.message)}</td></tr>`;
+        }
+      }
+
+      search.addEventListener("input", () => render(search.value));
+      main();
+    </script>
   </body>
 </html>
-

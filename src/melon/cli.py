@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=".melon/repo",
         help="repo directory containing packages/ (writes index.json into this directory)",
     )
-    repo_render = repo_subparsers.add_parser("render", help="generate a simple index.html listing for a repo folder")
+    repo_render = repo_subparsers.add_parser("render", help="(re)write a dynamic index.html for a repo folder (loads index.json)")
     repo_render.add_argument(
         "--dir",
         default="docs",
