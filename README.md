@@ -4,7 +4,8 @@
 
 ## Current scope
 
-- `melon-grow` builds a package archive from a simple `.pkg` recipe plus a `files/` directory.
+- `melon-grow` fetches, verifies, and installs a prebuilt package from a configured repo.
+- `melon-pack` packages already-built files into a `.tar.gz` from a simple `.pkg` recipe plus a `files/` directory.
 - `melon repo set <url>` stores a remote repository base URL.
 - `melon hydrate` pulls `index.json` from a configured remote repo or scans local repo archives.
 - `melon sniff` searches the repo index.
@@ -95,7 +96,7 @@ Use `melon-build` when you want a PKGBUILD-like file that drives the build/insta
 ## Example flow
 
 ```bash
-python -m melon.grow examples/hello/hello.pkg --out .melon/repo/packages
+python -m melon.pack examples/hello/hello.pkg --out .melon/repo/packages
 python -m melon.cli hydrate
 python -m melon.cli sniff hello
 python -m melon.cli plant hello

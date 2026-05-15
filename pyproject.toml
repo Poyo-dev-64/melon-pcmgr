@@ -12,6 +12,7 @@ requires-python = ">=3.11"
 melon = "melon.cli:main"
 melon-grow = "melon.grow:main"
 melon-build = "melon.build_cli:main"
+melon-pack = "melon.pack:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
