@@ -278,15 +278,22 @@ def _default_repo_html() -> str:
         installed_before = self.db.load()
         repo_packages = self.repo.load()
 
-        plan_order, selected = self._resolve_install_plan(package_name, installed_before, repo_packages)
-        missing = [name for name in plan_order if name not in installed_before]
-        if not missing:
+        plan_order, selected, to_upgrade = self._resolve_install_plan(package_name, installed_before, repo_packages)
+        needed = [name for name in plan_order if name not in installed_before]
+        if not needed and not to_upgrade:
             raise ValueError(f"{package_name} is already installed")
 
         installed_during: list[str] = []
+        upgraded_during: list[str] = []
         try:
-            for name in missing:
-                report(f"resolving {name}")
+            for name in plan_order:
+                if name in installed_before:
+                    if name in to_upgrade:
+                        report(f"upgrading {name} to {selected[name].version}")
+                        self._upgrade_one(name, selected[name], report)
+                        upgraded_during.append(name)
+                    continue
+                report(f"installing dependency {name}")
                 self._install_one(name, selected[name], report)
                 installed_during.append(name)
             return self.db.load()[package_name]
@@ -298,6 +305,13 @@ def _default_repo_html() -> str:
                 except Exception:
                     # Best-effort rollback; preserve the original error.
                     pass
+            # Best-effort rollback for upgrades: reinstall previous version if we still have the tarball.
+            # (If not available, we leave the upgraded version installed.)
+            for name in reversed(upgraded_during):
+                try:
+                    self._rollback_upgrade(name, installed_before[name].meta, report)
+                except Exception:
+                    pass
             raise
 
     def _resolve_install_plan(
@@ -305,12 +319,20 @@ def _default_repo_html() -> str:
         target: str,
         installed: dict[str, InstalledPackage],
         repo_packages: dict[str, list[PackageMeta]],
-    ) -> tuple[list[str], dict[str, PackageMeta]]:
+    ) -> tuple[list[str], dict[str, PackageMeta], set[str]]:
         selected: dict[str, PackageMeta] = {}
         visiting: set[str] = set()
         stack: list[str] = []
         order: list[str] = []
         missing: list[str] = []
+        to_upgrade: set[str] = set()
+        constraints: dict[str, list[DepSpec]] = {}
+
+        # Constraints imposed by already-installed packages (so upgrades don't break the system).
+        for pkg in installed.values():
+            for dep_text in pkg.meta.dependencies:
+                dep_spec = parse_dep_spec(dep_text)
+                constraints.setdefault(dep_spec.name, []).append(dep_spec)
 
         def choose(spec: DepSpec) -> PackageMeta:
             # If installed satisfies, lock to installed version.
@@ -318,22 +340,33 @@ def _default_repo_html() -> str:
                 inst = installed[spec.name].meta
                 if satisfies(inst.version, spec.op, spec.version):
                     return inst
-                raise ValueError(
-                    f"installed {spec.name} {inst.version} does not satisfy {spec.name}{spec.op}{spec.version}"
-                )
+                # Needs an upgrade; choose from repo candidates instead.
+                to_upgrade.add(spec.name)
 
             candidates = repo_packages.get(spec.name, [])
             if not candidates:
                 missing.append(str(spec))
                 raise KeyError
-            filtered = [c for c in candidates if satisfies(c.version, spec.op, spec.version)]
+            reqs = constraints.get(spec.name, [])
+            filtered = []
+            for c in candidates:
+                if not satisfies(c.version, spec.op, spec.version):
+                    continue
+                ok = True
+                for r in reqs:
+                    if not satisfies(c.version, r.op, r.version):
+                        ok = False
+                        break
+                if ok:
+                    filtered.append(c)
             if not filtered:
-                raise ValueError(f"no candidate satisfies {spec.name}{spec.op}{spec.version}")
+                raise ValueError(f"no candidate satisfies constraints for {spec.name}")
             filtered.sort(key=lambda c: version_key(c.version), reverse=True)
             return filtered[0]
 
         def dfs(spec: DepSpec) -> None:
             name = spec.name
+            constraints.setdefault(name, []).append(spec)
             if name in selected:
                 # If we already selected a version, ensure it's compatible with the new constraint.
                 chosen = selected[name]
@@ -356,9 +389,6 @@ def _default_repo_html() -> str:
                 return
 
             selected[name] = chosen
-            if name in installed:
-                return
-
             visiting.add(name)
             stack.append(name)
             for dep_text in chosen.dependencies:
@@ -371,7 +401,37 @@ def _default_repo_html() -> str:
         dfs(parse_dep_spec(target))
         if missing:
             raise ValueError(f"missing dependencies: {', '.join(sorted(set(missing)))}")
-        return order, selected
+        return order, selected, to_upgrade
+
+    def _upgrade_one(self, package_name: str, target: PackageMeta, report: Callable[[str], None]) -> None:
+        installed = self.db.load()
+        if package_name not in installed:
+            self._install_one(package_name, target, report)
+            return
+        current = installed[package_name].meta
+        if current.version == target.version:
+            return
+
+        # Remove current files but do not run remove hooks; this is an upgrade.
+        pkg = installed[package_name]
+        for rel_path in pkg.files:
+            path = self.paths.target_root / Path(rel_path)
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+                self._remove_empty_parents(path.parent)
+            elif path.is_dir():
+                try:
+                    path.rmdir()
+                except OSError:
+                    pass
+        installed.pop(package_name, None)
+        self.db.save(installed)
+        self._install_one(package_name, target, report)
+
+    def _rollback_upgrade(self, package_name: str, previous: PackageMeta, report: Callable[[str], None]) -> None:
+        # Only attempt if the previous version is available in repos/cache.
+        report(f"rollback upgrade {package_name} to {previous.version}")
+        self._upgrade_one(package_name, previous, report)
 
     def _install_one(self, package_name: str, package: PackageMeta, report: Callable[[str], None]) -> None:
         installed = self.db.load()
@@ -498,11 +558,14 @@ def _default_repo_html() -> str:
         for name, current in list(installed.items()):
             if name in holds or name not in repo_packages:
                 continue
-            target = repo_packages[name]
+            candidates = list(repo_packages.get(name, []))
+            if not candidates:
+                continue
+            candidates.sort(key=lambda c: version_key(c.version), reverse=True)
+            target = candidates[0]
             if target.version == current.meta.version:
                 continue
-            self.squeeze(name)
-            self.plant(name)
+            self._upgrade_one(name, target, lambda _m: None)
             upgraded.append(f"{name}: {current.meta.version} -> {target.version}")
         self.log(f"upgraded {len(upgraded)} package(s)")
         return upgraded
