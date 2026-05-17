@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .service import MelonService
 from .storage import MelonPaths
+from .versions import version_key
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sniff = subparsers.add_parser("sniff", aliases=["-Sn"], help="search packages in the repo")
     sniff.add_argument("query", nargs="?", default="")
+
+    subparsers.add_parser("list", help="list installed packages")
+
+    info = subparsers.add_parser("info", help="show info for an installed package or repo package")
+    info.add_argument("package")
 
     rdepends = subparsers.add_parser("rdepends", help="show reverse dependencies for an installed package")
     rdepends.add_argument("package")
@@ -132,6 +138,26 @@ def main() -> None:
         elif args.command in {"sniff", "-Sn"}:
             for pkg in service.sniff(args.query):
                 print(f"{pkg.name} {pkg.version} - {pkg.description}")
+        elif args.command == "list":
+            installed = service.db.load()
+            for name in sorted(installed.keys()):
+                meta = installed[name].meta
+                print(f"{meta.name} {meta.version}")
+        elif args.command == "info":
+            installed = service.db.load()
+            repo = service.repo.load()
+            name = args.package
+            if name in installed:
+                meta = installed[name].meta
+                print(json.dumps({"installed": installed[name].to_dict()}, indent=2))
+                if name in repo:
+                    versions = sorted((m.version for m in repo[name]), key=version_key, reverse=True)
+                    print(json.dumps({"available_versions": versions}, indent=2))
+            elif name in repo:
+                metas = sorted(repo[name], key=lambda m: version_key(m.version), reverse=True)
+                print(json.dumps({"available": [m.to_dict() for m in metas]}, indent=2))
+            else:
+                raise SystemExit(f"{name} not found (run hydrate)")
         elif args.command == "rdepends":
             installed = service.db.load()
             dependents = sorted(

@@ -99,6 +99,8 @@ Each package entry should include a `sha256` checksum and may include `package_u
 
 Dependencies are strings like `zlib`, `zlib>=1.3`, or `openssl==3.0.0`.
 
+Version format supports `epoch:version-release` (examples: `1:2.0.1-3`, `0:1.2.3`, `2.1.0-1`).
+
 ## GitHub Pages hosting (moderator git-push workflow)
 
 Recommended layout is to publish from the repository root on `main`:
