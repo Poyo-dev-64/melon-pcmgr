@@ -5,8 +5,8 @@
 ## Current scope
 
 - `melon plant` downloads, verifies SHA256, and installs a prebuilt package from a configured repo.
-- `melon-grow` is a moderator wrapper: builds a package from a buildspec and regenerates `index.json`.
-- `melon-pack` packages already-built files into a `.tar.gz` from a simple `.pkg` recipe plus a `files/` directory.
+- `melon build` is a moderator wrapper: builds a package from a buildspec and regenerates `index.json`.
+- `melon pack` packages already-built files into a `.tar.gz` from a simple `.pkg` recipe plus a `files/` directory.
 - `melon repo set <url>` stores a remote repository base URL.
 - `melon repo add <name> <url> --priority N` supports multiple repositories (higher priority wins).
 - `melon hydrate` pulls `index.json` from a configured remote repo or scans local repo archives.
@@ -112,9 +112,8 @@ Recommended layout is to publish from the repository root on `main`:
 Moderator workflow:
 
 1. Build a package into the Pages folder:
-   - `melon-grow yourpkg.build.ini --repo .`
-   - or `melon-build yourpkg.build.ini --out packages`
-   - or `melon-pack yourpkg.pkg --out packages`
+   - `melon build yourpkg.build.ini --repo .`
+   - or `melon pack yourpkg.pkg --out packages`
 2. Regenerate the index:
    - `melon repo index --dir .`
 3. Ensure the HTML listing page exists (usually one-time):
@@ -130,7 +129,7 @@ Users can:
 
 This is the intended model: the builder machine creates the `.tar.gz`, publishes it to the repo, and clients only download and install the already-built package.
 
-1. Build package archives into your repo folder's `packages/` (via `melon-build`, `melon-pack`, or `melon-grow` as a wrapper).
+1. Build package archives into your repo folder's `packages/` (via `melon build` or `melon pack`).
 2. Generate/refresh `index.json` with `melon repo index --dir <repo-folder>`.
 3. Publish the repo folder so it serves `index.json` and `packages/*.tar.gz` (any static file host works).
 
@@ -139,7 +138,7 @@ This is the intended model: the builder machine creates the `.tar.gz`, publishes
 Use `melon-build` when you want a PKGBUILD-like file that drives the build/install staging steps.
 
 1. Write a buildspec like `examples/hello/hello.build.ini`.
-2. Run `melon-build <spec> --out <repo>/packages` to create `packages/<name>-<version>.tar.gz`.
+2. Run `melon build <spec> --repo <repo>` to create `packages/<name>-<version>.tar.gz` and regenerate `index.json`.
 3. Run `melon repo index --dir <repo>` to regenerate `index.json`.
 4. Publish the repo folder as static files.
 
@@ -150,7 +149,7 @@ Buildspec phases live under `[build]`:
 - `check =` (multi-line commands)
 - `install =` (multi-line commands; must install into `$DESTDIR`)
 
-You can also use `melon-grow <spec> --repo <repo>` as a convenience wrapper that runs build + index regeneration.
+You can also use `melon repo index` and `melon repo render` as separate publishing steps.
 
 Notes:
 

@@ -9,10 +9,7 @@ description = "Sandboxed prototype of the Melon package manager"
 requires-python = ">=3.11"
 
 [project.scripts]
-melon = "melon.cli:main"
-melon-grow = "melon.grow:main"
-melon-build = "melon.build_cli:main"
-melon-pack = "melon.pack:main"
+melon = "melon.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

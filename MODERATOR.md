@@ -35,8 +35,7 @@ All commands below assume you are in the repo checkout.
 ### A) Build From Buildspec (recommended)
 
 1. Build the tarball into the Pages folder:
-   - `melon-grow path/to/pkg.build.ini --repo .`
-   - Equivalent manual: `melon-build path/to/pkg.build.ini --out packages`
+   - `melon build path/to/pkg.build.ini --repo .`
 
 Buildspec phases (`.build.ini`) are:
 
@@ -49,7 +48,7 @@ Buildspec phases (`.build.ini`) are:
 
 1. Place artifacts under `files/` (already compiled).
 2. Package them:
-   - `melon-pack path/to/pkg.pkg --out packages`
+   - `melon pack path/to/pkg.pkg --out packages`
 
 ### Regenerate Repo Index (required)
 
