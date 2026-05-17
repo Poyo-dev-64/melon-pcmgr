@@ -21,7 +21,7 @@ rm -rf "$SCRIPT_DIR/../dist" "$SCRIPT_DIR/../build"
 # Static, predictable layout (repo root):
 #   scripts/build-linux-binary.sh
 #   src/melon/main.py
-ENTRYPOINT="$SCRIPT_DIR/../src/melon/main.py"
+ENTRYPOINT="$SCRIPT_DIR/src/melon/main.py"
 if [ ! -f "$ENTRYPOINT" ]; then
   echo "ERROR: missing entrypoint: $ENTRYPOINT" 1>&2
   echo "Run from the repo checkout that contains src/melon/main.py" 1>&2
