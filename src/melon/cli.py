@@ -56,11 +56,15 @@ def build_parser() -> argparse.ArgumentParser:
     sniff = subparsers.add_parser("sniff", aliases=["-Sn"], help="search packages in the repo")
     sniff.add_argument("query", nargs="?", default="")
 
+    rdepends = subparsers.add_parser("rdepends", help="show reverse dependencies for an installed package")
+    rdepends.add_argument("package")
+
     plant = subparsers.add_parser("plant", aliases=["-P"], help="install a package")
     plant.add_argument("package")
 
     squeeze = subparsers.add_parser("squeeze", aliases=["-S"], help="remove a package")
     squeeze.add_argument("package")
+    squeeze.add_argument("--cascade", action="store_true", help="also remove unneeded deps (very conservative)")
 
     preserve = subparsers.add_parser("preserve", help="hold an installed package")
     preserve.add_argument("package")
@@ -128,20 +132,72 @@ def main() -> None:
         elif args.command in {"sniff", "-Sn"}:
             for pkg in service.sniff(args.query):
                 print(f"{pkg.name} {pkg.version} - {pkg.description}")
+        elif args.command == "rdepends":
+            installed = service.db.load()
+            dependents = sorted(
+                name for name, pkg in installed.items() if args.package in (pkg.meta.dependencies or [])
+            )
+            if dependents:
+                print("\n".join(dependents))
+            else:
+                print("")
         elif args.command in {"plant", "-P"}:
-            installed = service.plant(args.package, progress=lambda message: print(f":: {message}"))
+            service.acquire_lock()
+            try:
+                installed = service.plant(args.package, progress=lambda message: print(f":: {message}"))
+            finally:
+                service.release_lock()
             print(f":: installed {installed.meta.package_stem} ({len(installed.files)} files)")
         elif args.command in {"squeeze", "-S"}:
-            service.squeeze(args.package)
+            service.acquire_lock()
+            try:
+                service.squeeze(args.package)
+                if args.cascade:
+                    # Remove deps that are now orphaned (no reverse deps).
+                    while True:
+                        installed = service.db.load()
+                        orphans = []
+                        for name, pkg in installed.items():
+                            if name == args.package:
+                                continue
+                            dependents = [
+                                other for other, opkg in installed.items()
+                                if name in (opkg.meta.dependencies or [])
+                            ]
+                            if not dependents and (pkg.meta.dependencies or []):
+                                # Only consider packages that were installed as deps (has deps metadata);
+                                # this keeps the behavior conservative.
+                                orphans.append(name)
+                        if not orphans:
+                            break
+                        for orphan in sorted(set(orphans)):
+                            try:
+                                service.squeeze(orphan)
+                            except Exception:
+                                continue
+            finally:
+                service.release_lock()
             print(f":: removed {args.package}")
         elif args.command == "preserve":
-            service.preserve(args.package)
+            service.acquire_lock()
+            try:
+                service.preserve(args.package)
+            finally:
+                service.release_lock()
             print(f":: held {args.package}")
         elif args.command == "thaw":
-            service.thaw(args.package)
+            service.acquire_lock()
+            try:
+                service.thaw(args.package)
+            finally:
+                service.release_lock()
             print(f":: released {args.package}")
         elif args.command in {"ripen", "-R"}:
-            upgrades = service.ripen()
+            service.acquire_lock()
+            try:
+                upgrades = service.ripen()
+            finally:
+                service.release_lock()
             if upgrades:
                 print("\n".join(upgrades))
             else:
@@ -152,7 +208,11 @@ def main() -> None:
         elif args.command in {"nutrition", "-N"}:
             print(service.nutrition(args.package))
         elif args.command == "wash":
-            removed = service.wash()
+            service.acquire_lock()
+            try:
+                removed = service.wash()
+            finally:
+                service.release_lock()
             print(f":: removed {len(removed)} cache entries")
         elif args.command == "status":
             print(json.dumps(service.status(), indent=2))

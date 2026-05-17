@@ -14,6 +14,7 @@
 - `melon plant` resolves dependencies, downloads package archives, verifies SHA256 checksums, and installs payload files into the target root.
 - Install and remove operations are transactional: if extraction or a lifecycle hook fails, Melon restores files and package metadata.
 - `melon squeeze` removes installed package files.
+- `melon rdepends <pkg>` shows reverse dependencies for an installed package.
 - `melon preserve` and `melon thaw` manage held packages.
 - `melon ripen` upgrades installed packages from the local repo.
 - `melon rind`, `melon nutrition`, `melon wash`, and `melon status` expose local state.
@@ -89,7 +90,14 @@ Remote repos are expected to expose:
 - `index.json`: package metadata keyed by package name
 - `packages/<name>-<version>.tar.gz`: package archives
 
-Each package entry in `index.json` should include a `sha256` checksum and may include `package_url`. Relative `package_url` values are resolved from the repository base URL.
+`index.json` formats:
+
+- v2 (current): `{ "format": 2, "packages": { "name": [ {meta}, {meta}, ... ] } }`
+- v1 (legacy): `{ "name": {meta}, ... }` (still accepted during `hydrate`)
+
+Each package entry should include a `sha256` checksum and may include `package_url`. Relative `package_url` values are resolved from the repository base URL.
+
+Dependencies are strings like `zlib`, `zlib>=1.3`, or `openssl==3.0.0`.
 
 ## GitHub Pages hosting (moderator git-push workflow)
 

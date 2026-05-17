@@ -18,10 +18,10 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def discover_packages(repo_dir: Path) -> dict[str, PackageMeta]:
+def discover_packages(repo_dir: Path) -> dict[str, list[PackageMeta]]:
     packages_dir = repo_dir / "packages"
     packages_dir.mkdir(parents=True, exist_ok=True)
-    result: dict[str, PackageMeta] = {}
+    result: dict[str, list[PackageMeta]] = {}
     for archive in sorted(packages_dir.glob("*.tar.gz")):
         with tarfile.open(archive, "r:gz") as tar:
             member = tar.extractfile("meta.json")
@@ -34,6 +34,7 @@ def discover_packages(repo_dir: Path) -> dict[str, PackageMeta]:
             description=data.get("description", ""),
             source_url=data.get("source_url", ""),
             package_url=data.get("package_url", f"packages/{archive.name}"),
+            repo_url=data.get("repo_url", ""),
             dependencies=list(data.get("dependencies", [])),
             sha256=file_sha256(archive),
             build_configure=list(data.get("build_configure", [])),
@@ -42,7 +43,7 @@ def discover_packages(repo_dir: Path) -> dict[str, PackageMeta]:
             remove_steps=list(data.get("remove_steps", [])),
             patches=list(data.get("patches", [])),
         )
-        result[meta.name] = meta
+        result.setdefault(meta.name, []).append(meta)
     return result
 
 

@@ -175,12 +175,24 @@ class RepoIndex:
         self.paths = paths
         self.paths.ensure()
 
-    def load(self) -> dict[str, PackageMeta]:
+    def load(self) -> dict[str, list[PackageMeta]]:
         raw = read_json(self.paths.repo_index, {})
-        return {name: package_from_dict(item) for name, item in raw.items()}
+        # v1: { "name": {meta}, ... }
+        if raw and "packages" not in raw:
+            return {name: [package_from_dict(item)] for name, item in raw.items()}
+        # v2: { "format": 2, "packages": { "name": [ {meta}, ... ] } }
+        packages = raw.get("packages", {}) if isinstance(raw, dict) else {}
+        out: dict[str, list[PackageMeta]] = {}
+        for name, items in packages.items():
+            out[name] = [package_from_dict(item) for item in (items or [])]
+        return out
 
-    def save(self, packages: dict[str, PackageMeta]) -> None:
-        write_json(self.paths.repo_index, {name: pkg.to_dict() for name, pkg in packages.items()})
+    def save(self, packages: dict[str, list[PackageMeta]]) -> None:
+        payload = {
+            "format": 2,
+            "packages": {name: [pkg.to_dict() for pkg in pkgs] for name, pkgs in packages.items()},
+        }
+        write_json(self.paths.repo_index, payload)
 
 
 class RepoConfig:

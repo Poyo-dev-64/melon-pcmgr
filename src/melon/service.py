@@ -6,6 +6,7 @@ import subprocess
 import shutil
 import sys
 import tarfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from pathlib import Path
 from .models import InstalledPackage, PackageMeta, normalize_rel_path
 from .repository import discover_packages, download_file, fetch_json, file_sha256, resolve_url
 from .storage import InstalledDB, MelonPaths, RepoConfig, RepoIndex, write_json
+from .versions import DepSpec, parse_dep_spec, satisfies, version_key
 
 
 @dataclass(slots=True)
@@ -34,6 +36,26 @@ class MelonService:
         log_path = self.paths.logs_dir / f"{package}-{stamp}.log"
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(f"{datetime.now(UTC).isoformat()} {message}\n")
+
+    def acquire_lock(self, timeout_s: int = 30) -> None:
+        self.paths.lock_file.parent.mkdir(parents=True, exist_ok=True)
+        start = time.time()
+        while True:
+            try:
+                fd = os.open(str(self.paths.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, str(os.getpid()).encode("ascii", errors="ignore"))
+                os.close(fd)
+                return
+            except FileExistsError:
+                if time.time() - start > timeout_s:
+                    raise TimeoutError(f"melon is locked: {self.paths.lock_file}")
+                time.sleep(0.1)
+
+    def release_lock(self) -> None:
+        try:
+            self.paths.lock_file.unlink()
+        except FileNotFoundError:
+            pass
 
     def repo_settings(self) -> dict:
         return self.repo_config.load()
@@ -62,10 +84,10 @@ class MelonService:
         self.log(f"removed repo {name}")
         return config
 
-    def hydrate(self) -> dict[str, PackageMeta]:
+    def hydrate(self) -> dict[str, list[PackageMeta]]:
         config = self.repo_config.load()
         repos = list(config.get("repos", []))
-        packages: dict[str, PackageMeta] = {}
+        packages: dict[str, dict[str, PackageMeta]] = {}
 
         if repos:
             # Higher priority wins; ties resolved by repo list order after sorting.
@@ -76,37 +98,48 @@ class MelonService:
                     continue
                 index_url = resolve_url(base_url, "index.json")
                 payload = fetch_json(index_url)
-                for name, data in payload.items():
-                    packages[name] = PackageMeta(
-                        name=data["name"],
-                        version=data["version"],
-                        description=data.get("description", ""),
-                        source_url=data.get("source_url", ""),
-                        package_url=data.get("package_url", f"packages/{data['name']}-{data['version']}.tar.gz"),
-                        repo_url=base_url,
-                        dependencies=list(data.get("dependencies", [])),
-                        sha256=data.get("sha256", ""),
-                        build_configure=list(data.get("build_configure", [])),
-                        build_make=list(data.get("build_make", [])),
-                        install_steps=list(data.get("install_steps", [])),
-                        remove_steps=list(data.get("remove_steps", [])),
-                        patches=list(data.get("patches", [])),
-                    )
-            self.log(f"hydrated repository from {len(repos)} repo(s) with {len(packages)} package(s)")
+                # Accept both v1 and v2 formats.
+                if isinstance(payload, dict) and "packages" in payload:
+                    payload_pkgs = payload.get("packages", {})
+                else:
+                    payload_pkgs = {name: [data] for name, data in (payload or {}).items()}
+
+                for name, entries in payload_pkgs.items():
+                    for data in entries or []:
+                        meta = PackageMeta(
+                            name=data["name"],
+                            version=data["version"],
+                            description=data.get("description", ""),
+                            source_url=data.get("source_url", ""),
+                            package_url=data.get("package_url", f"packages/{data['name']}-{data['version']}.tar.gz"),
+                            repo_url=base_url,
+                            dependencies=list(data.get("dependencies", [])),
+                            sha256=data.get("sha256", ""),
+                            build_configure=list(data.get("build_configure", [])),
+                            build_make=list(data.get("build_make", [])),
+                            install_steps=list(data.get("install_steps", [])),
+                            remove_steps=list(data.get("remove_steps", [])),
+                            patches=list(data.get("patches", [])),
+                        )
+                        packages.setdefault(name, {})[meta.version] = meta
+            out = {name: list(by_ver.values()) for name, by_ver in packages.items()}
+            self.log(f"hydrated repository from {len(repos)} repo(s) with {sum(len(v) for v in out.values())} version(s)")
         else:
-            packages = discover_packages(self.paths.repo_dir)
-            self.log(f"hydrated repository with {len(packages)} local packages")
-        self.repo.save(packages)
-        return packages
+            out = discover_packages(self.paths.repo_dir)
+            self.log(f"hydrated repository with {sum(len(v) for v in out.values())} local version(s)")
+        self.repo.save(out)
+        return out
 
     def build_repo_index(self, repo_dir: Path) -> int:
         packages = discover_packages(repo_dir)
-        (repo_dir / "index.json").write_text(
-            json.dumps({name: meta.to_dict() for name, meta in packages.items()}, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        self.log(f"generated repo index at {repo_dir / 'index.json'} with {len(packages)} package(s)")
-        return len(packages)
+        payload = {
+            "format": 2,
+            "packages": {name: [meta.to_dict() for meta in metas] for name, metas in packages.items()},
+        }
+        (repo_dir / "index.json").write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        count = sum(len(v) for v in packages.values())
+        self.log(f"generated repo index at {repo_dir / 'index.json'} with {count} version(s)")
+        return count
 
     def render_repo_html(self, repo_dir: Path) -> int:
         html_path = repo_dir / "index.html"
@@ -225,7 +258,7 @@ def _default_repo_html() -> str:
 
     def sniff(self, query: str = "") -> list[PackageMeta]:
         packages = self.repo.load()
-        values = list(packages.values())
+        values = [meta for metas in packages.values() for meta in metas]
         if not query:
             return values
         query_lower = query.lower()
@@ -245,8 +278,8 @@ def _default_repo_html() -> str:
         installed_before = self.db.load()
         repo_packages = self.repo.load()
 
-        plan = self._resolve_install_plan(package_name, installed_before, repo_packages)
-        missing = [name for name in plan if name not in installed_before]
+        plan_order, selected = self._resolve_install_plan(package_name, installed_before, repo_packages)
+        missing = [name for name in plan_order if name not in installed_before]
         if not missing:
             raise ValueError(f"{package_name} is already installed")
 
@@ -254,7 +287,7 @@ def _default_repo_html() -> str:
         try:
             for name in missing:
                 report(f"resolving {name}")
-                self._install_one(name, repo_packages[name], report)
+                self._install_one(name, selected[name], report)
                 installed_during.append(name)
             return self.db.load()[package_name]
         except Exception:
@@ -271,45 +304,74 @@ def _default_repo_html() -> str:
         self,
         target: str,
         installed: dict[str, InstalledPackage],
-        repo_packages: dict[str, PackageMeta],
-    ) -> list[str]:
-        if target not in repo_packages and target not in installed:
-            raise ValueError(f"{target} is not present in the repo index; run hydrate first")
-
+        repo_packages: dict[str, list[PackageMeta]],
+    ) -> tuple[list[str], dict[str, PackageMeta]]:
+        selected: dict[str, PackageMeta] = {}
         visiting: set[str] = set()
-        visited: set[str] = set()
         stack: list[str] = []
         order: list[str] = []
         missing: list[str] = []
 
-        def dfs(name: str) -> None:
-            if name in visited or name in installed:
-                visited.add(name)
+        def choose(spec: DepSpec) -> PackageMeta:
+            # If installed satisfies, lock to installed version.
+            if spec.name in installed:
+                inst = installed[spec.name].meta
+                if satisfies(inst.version, spec.op, spec.version):
+                    return inst
+                raise ValueError(
+                    f"installed {spec.name} {inst.version} does not satisfy {spec.name}{spec.op}{spec.version}"
+                )
+
+            candidates = repo_packages.get(spec.name, [])
+            if not candidates:
+                missing.append(str(spec))
+                raise KeyError
+            filtered = [c for c in candidates if satisfies(c.version, spec.op, spec.version)]
+            if not filtered:
+                raise ValueError(f"no candidate satisfies {spec.name}{spec.op}{spec.version}")
+            filtered.sort(key=lambda c: version_key(c.version), reverse=True)
+            return filtered[0]
+
+        def dfs(spec: DepSpec) -> None:
+            name = spec.name
+            if name in selected:
+                # If we already selected a version, ensure it's compatible with the new constraint.
+                chosen = selected[name]
+                if not satisfies(chosen.version, spec.op, spec.version):
+                    raise ValueError(
+                        f"dependency conflict for {name}: selected {chosen.version} but also needs {name}{spec.op}{spec.version}"
+                    )
                 return
             if name in visiting:
-                # Build a readable cycle path: a -> b -> c -> a
                 if name in stack:
                     idx = stack.index(name)
                     cycle = stack[idx:] + [name]
                 else:
                     cycle = stack + [name]
                 raise ValueError("circular dependency: " + " -> ".join(cycle))
-            if name not in repo_packages:
-                missing.append(name)
+
+            try:
+                chosen = choose(spec)
+            except KeyError:
                 return
+
+            selected[name] = chosen
+            if name in installed:
+                return
+
             visiting.add(name)
             stack.append(name)
-            for dep in repo_packages[name].dependencies:
-                dfs(dep)
+            for dep_text in chosen.dependencies:
+                dep_spec = parse_dep_spec(dep_text)
+                dfs(dep_spec)
             stack.pop()
             visiting.remove(name)
-            visited.add(name)
             order.append(name)
 
-        dfs(target)
+        dfs(parse_dep_spec(target))
         if missing:
             raise ValueError(f"missing dependencies: {', '.join(sorted(set(missing)))}")
-        return order
+        return order, selected
 
     def _install_one(self, package_name: str, package: PackageMeta, report: Callable[[str], None]) -> None:
         installed = self.db.load()
