@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     repo_render = repo_subparsers.add_parser("render", help="(re)write a dynamic index.html for a repo folder (loads index.json)")
     repo_render.add_argument(
         "--dir",
-        default="docs",
+        default=".",
         help="repo directory containing index.json and packages/ (writes index.html into this directory)",
     )
 

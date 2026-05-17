@@ -14,7 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Moderator tool: build a package from a buildspec and regenerate the repo index",
     )
     parser.add_argument("spec", help="path to a buildspec (.build.ini)")
-    parser.add_argument("--repo", default=".melon/repo", help="repo directory containing packages/ and index.json")
+    parser.add_argument("--repo", default=".", help="repo directory containing packages/ and index.json")
     parser.add_argument("--work", default="", help="optional build work directory (kept; no auto-clean)")
     return parser
 

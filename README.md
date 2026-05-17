@@ -93,23 +93,23 @@ Each package entry in `index.json` should include a `sha256` checksum and may in
 
 ## GitHub Pages hosting (moderator git-push workflow)
 
-Recommended layout for GitHub Pages is to publish from `docs/` on `main`:
+Recommended layout is to publish from the repository root on `main`:
 
-- `docs/index.json`
-- `docs/index.html`
-- `docs/packages/*.tar.gz`
+- `index.json`
+- `index.html` (dynamic; loads `index.json`)
+- `packages/*.tar.gz`
 
 Moderator workflow:
 
 1. Build a package into the Pages folder:
-   - `melon-grow yourpkg.build.ini --repo docs`
-   - or `melon-build yourpkg.build.ini --out docs/packages`
-   - or `melon-pack yourpkg.pkg --out docs/packages`
+   - `melon-grow yourpkg.build.ini --repo .`
+   - or `melon-build yourpkg.build.ini --out packages`
+   - or `melon-pack yourpkg.pkg --out packages`
 2. Regenerate the index:
-   - `melon repo index --dir docs`
+   - `melon repo index --dir .`
 3. Ensure the HTML listing page exists (usually one-time):
-   - `melon repo render --dir docs`
-4. `git add docs && git commit && git push`
+   - `melon repo render --dir .`
+4. `git add index.json packages index.html && git commit && git push`
 
 Users can:
 

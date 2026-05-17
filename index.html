@@ -20,7 +20,7 @@
   </head>
   <body>
     <h1>Melon Repository</h1>
-    <p class="muted">This page is dynamic: it loads <code>index.json</code> and lists packages. You can install via the Melon CLI or download tarballs.</p>
+    <p class="muted">This page is dynamic: it loads <code>index.json</code> and lists packages.</p>
     <p>Repo index: <a href="./index.json"><code>index.json</code></a> <span id="status" class="muted"></span></p>
     <p><input id="q" type="search" placeholder="Search packages..." style="width: min(520px, 100%); padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px;" /></p>
     <table>
@@ -84,7 +84,7 @@
 
       async function main() {
         try {
-          status.textContent = " (loading…)";
+          status.textContent = " (loading...)";
           const res = await fetch("./index.json", { cache: "no-store" });
           if (!res.ok) throw new Error(`index.json HTTP ${res.status}`);
           const data = await res.json();
@@ -102,3 +102,4 @@
     </script>
   </body>
 </html>
+

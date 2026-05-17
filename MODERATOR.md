@@ -15,11 +15,11 @@ If you break `index.json` or `sha256`, installs fail immediately (by design).
 
 ## Repo Layout (GitHub Pages)
 
-Publish from `docs/` on `main`:
+Publish from the repository root on `main`:
 
-- `docs/index.json`
-- `docs/index.html` (dynamic; loads `index.json`)
-- `docs/packages/*.tar.gz`
+- `index.json`
+- `index.html` (dynamic; loads `index.json`)
+- `packages/*.tar.gz`
 
 ## One-Time Setup (GitHub)
 
@@ -35,8 +35,8 @@ All commands below assume you are in the repo checkout.
 ### A) Build From Buildspec (recommended)
 
 1. Build the tarball into the Pages folder:
-   - `melon-grow path/to/pkg.build.ini --repo docs`
-   - Equivalent manual: `melon-build path/to/pkg.build.ini --out docs/packages`
+   - `melon-grow path/to/pkg.build.ini --repo .`
+   - Equivalent manual: `melon-build path/to/pkg.build.ini --out packages`
 
 Buildspec phases (`.build.ini`) are:
 
@@ -49,13 +49,13 @@ Buildspec phases (`.build.ini`) are:
 
 1. Place artifacts under `files/` (already compiled).
 2. Package them:
-   - `melon-pack path/to/pkg.pkg --out docs/packages`
+   - `melon-pack path/to/pkg.pkg --out packages`
 
 ### Regenerate Repo Index (required)
 
 After any tarball changes:
 
-- `melon repo index --dir docs`
+- `melon repo index --dir .`
 
 This recomputes SHA256 for every tarball and writes `docs/index.json`.
 
@@ -63,13 +63,14 @@ This recomputes SHA256 for every tarball and writes `docs/index.json`.
 
 If you need to (re)generate the dynamic HTML:
 
-- `melon repo render --dir docs`
+- `melon repo render --dir .`
 
 After this, the page updates automatically whenever `index.json` changes.
 
 ### Publish (git push)
 
 1. `git add docs`
+   - or `git add index.json index.html packages`
 2. `git commit -m "repo: add/update <pkg> <ver>"`
 3. `git push`
 
