@@ -240,62 +240,127 @@ def _default_repo_html() -> str:
         package_name: str,
         *,
         progress: Callable[[str], None] | None = None,
-        _installing: set[str] | None = None,
     ) -> InstalledPackage:
         report = progress or (lambda _message: None)
-        installed = self.db.load()
+        installed_before = self.db.load()
         repo_packages = self.repo.load()
-        if package_name in installed:
+
+        plan = self._resolve_install_plan(package_name, installed_before, repo_packages)
+        missing = [name for name in plan if name not in installed_before]
+        if not missing:
             raise ValueError(f"{package_name} is already installed")
-        if package_name not in repo_packages:
-            raise ValueError(f"{package_name} is not present in the repo index; run hydrate first")
 
-        package = repo_packages[package_name]
-        installing = _installing or set()
-        if package_name in installing:
-            raise ValueError(f"detected dependency cycle while installing {package_name}")
-        installing.add(package_name)
+        installed_during: list[str] = []
         try:
-            for dependency in package.dependencies:
-                if dependency in installed:
-                    continue
-                if dependency not in repo_packages:
-                    raise ValueError(f"{package_name} depends on {dependency}, which is missing from the repo")
-                report(f"resolving dependency {dependency} for {package_name}")
-                self.plant(dependency, progress=progress, _installing=installing)
-                installed = self.db.load()
+            for name in missing:
+                report(f"resolving {name}")
+                self._install_one(name, repo_packages[name], report)
+                installed_during.append(name)
+            return self.db.load()[package_name]
+        except Exception:
+            # Roll back only packages that were installed during this operation, in reverse order.
+            for name in reversed(installed_during):
+                try:
+                    self._uninstall_for_rollback(name)
+                except Exception:
+                    # Best-effort rollback; preserve the original error.
+                    pass
+            raise
 
-            report(f"fetching {package.package_stem}")
-            archive_path = self._ensure_package_archive(package, report)
-            report(f"verifying {package.package_stem}")
-            self._verify_archive(package, archive_path)
-            report(f"installing {package.package_stem}")
+    def _resolve_install_plan(
+        self,
+        target: str,
+        installed: dict[str, InstalledPackage],
+        repo_packages: dict[str, PackageMeta],
+    ) -> list[str]:
+        if target not in repo_packages and target not in installed:
+            raise ValueError(f"{target} is not present in the repo index; run hydrate first")
 
-            installed_files: list[str] = []
-            staged_files: list[Path] = []
-            temp_dir = self._new_transaction_dir(package.name)
-            script_dir = temp_dir / "scripts"
-            try:
-                with tarfile.open(archive_path, "r:gz") as tar:
-                    self._extract_scripts(tar, script_dir)
-                    self._run_hook(script_dir, "pre-install", package, report)
-                    staged_files = self._extract_payload_to_stage(tar, temp_dir / "payload")
-                    installed_files = self._commit_staged_files(staged_files, temp_dir / "payload")
-                installed[package_name] = InstalledPackage(meta=package, files=installed_files)
-                self.db.save(installed)
-                self._run_hook(script_dir, "post-install", package, report)
-            except Exception:
-                installed.pop(package_name, None)
-                self.db.save(installed)
-                self._rollback_installed_files(installed_files)
-                raise
-            finally:
-                shutil.rmtree(temp_dir, ignore_errors=True)
+        visiting: set[str] = set()
+        visited: set[str] = set()
+        stack: list[str] = []
+        order: list[str] = []
+        missing: list[str] = []
 
-            self.log(f"installed {package.package_stem}", package_name)
-            return installed[package_name]
+        def dfs(name: str) -> None:
+            if name in visited or name in installed:
+                visited.add(name)
+                return
+            if name in visiting:
+                # Build a readable cycle path: a -> b -> c -> a
+                if name in stack:
+                    idx = stack.index(name)
+                    cycle = stack[idx:] + [name]
+                else:
+                    cycle = stack + [name]
+                raise ValueError("circular dependency: " + " -> ".join(cycle))
+            if name not in repo_packages:
+                missing.append(name)
+                return
+            visiting.add(name)
+            stack.append(name)
+            for dep in repo_packages[name].dependencies:
+                dfs(dep)
+            stack.pop()
+            visiting.remove(name)
+            visited.add(name)
+            order.append(name)
+
+        dfs(target)
+        if missing:
+            raise ValueError(f"missing dependencies: {', '.join(sorted(set(missing)))}")
+        return order
+
+    def _install_one(self, package_name: str, package: PackageMeta, report: Callable[[str], None]) -> None:
+        installed = self.db.load()
+        if package_name in installed:
+            return
+
+        report(f"fetching {package.package_stem}")
+        archive_path = self._ensure_package_archive(package, report)
+        report(f"verifying {package.package_stem}")
+        self._verify_archive(package, archive_path)
+        report(f"installing {package.package_stem}")
+
+        installed_files: list[str] = []
+        staged_files: list[Path] = []
+        temp_dir = self._new_transaction_dir(package.name)
+        script_dir = temp_dir / "scripts"
+        try:
+            with tarfile.open(archive_path, "r:gz") as tar:
+                self._extract_scripts(tar, script_dir)
+                self._run_hook(script_dir, "pre-install", package, report)
+                staged_files = self._extract_payload_to_stage(tar, temp_dir / "payload")
+                installed_files = self._commit_staged_files(staged_files, temp_dir / "payload")
+            installed[package_name] = InstalledPackage(meta=package, files=installed_files)
+            self.db.save(installed)
+            self._run_hook(script_dir, "post-install", package, report)
+        except Exception:
+            installed.pop(package_name, None)
+            self.db.save(installed)
+            self._rollback_installed_files(installed_files)
+            raise
         finally:
-            installing.discard(package_name)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+        self.log(f"installed {package.package_stem}", package_name)
+
+    def _uninstall_for_rollback(self, package_name: str) -> None:
+        installed = self.db.load()
+        if package_name not in installed:
+            return
+        pkg = installed.pop(package_name)
+        for rel_path in pkg.files:
+            target = self.paths.target_root / Path(rel_path)
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+                self._remove_empty_parents(target.parent)
+            elif target.is_dir():
+                try:
+                    target.rmdir()
+                except OSError:
+                    pass
+        self.db.save(installed)
 
     def squeeze(self, package_name: str) -> None:
         installed = self.db.load()
