@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from .service import MelonService
@@ -9,9 +10,20 @@ from .storage import MelonPaths
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="melon", description="Sandboxed Melon package manager")
-    parser.add_argument("--root", default=".", help="install root (e.g. / or /mnt/lfs); workspace root if --layout=workspace")
-    parser.add_argument("--layout", choices=["workspace", "system"], default="workspace", help="where Melon stores its state and what install root means")
+    default_layout = "system" if os.name != "nt" else "workspace"
+    default_root = "/" if default_layout == "system" else "."
+    parser = argparse.ArgumentParser(prog="melon", description="Melon package manager")
+    parser.add_argument(
+        "--root",
+        default=default_root,
+        help="install root (e.g. / or /mnt/lfs); workspace root if --layout=workspace",
+    )
+    parser.add_argument(
+        "--layout",
+        choices=["workspace", "system"],
+        default=default_layout,
+        help="system is the default on Linux; workspace keeps all state local",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("hydrate", aliases=["-Hy"], help="sync the repo index from local packages")
@@ -20,6 +32,13 @@ def build_parser() -> argparse.ArgumentParser:
     repo_subparsers = repo.add_subparsers(dest="repo_command", required=True)
     repo_set = repo_subparsers.add_parser("set", help="set the remote repository base URL")
     repo_set.add_argument("url")
+    repo_add = repo_subparsers.add_parser("add", help="add a repository (multi-repo support)")
+    repo_add.add_argument("name")
+    repo_add.add_argument("url")
+    repo_add.add_argument("--priority", type=int, default=0)
+    repo_rm = repo_subparsers.add_parser("rm", help="remove a repository by name")
+    repo_rm.add_argument("name")
+    repo_subparsers.add_parser("ls", help="list configured repositories")
     repo_subparsers.add_parser("show", help="show current repository settings")
     repo_index = repo_subparsers.add_parser("index", help="generate index.json for a built package repo folder")
     repo_index.add_argument(
@@ -74,8 +93,9 @@ def main() -> None:
         if args.command in {"hydrate", "-Hy"}:
             packages = service.hydrate()
             settings = service.repo_settings()
-            if settings.get("url"):
-                print(f":: synced {len(packages)} package(s) from {settings['url']}")
+            repos = settings.get("repos", [])
+            if repos:
+                print(f":: synced {len(packages)} package(s) from {len(repos)} repo(s)")
             else:
                 print(f":: scanned {len(packages)} local package(s)")
             for pkg in packages.values():
@@ -83,7 +103,18 @@ def main() -> None:
         elif args.command == "repo":
             if args.repo_command == "set":
                 config = service.set_repo(args.url)
-                print(f":: repository set to {config['url']}")
+                print(":: repository set")
+                print(json.dumps(config, indent=2))
+            elif args.repo_command == "add":
+                config = service.add_repo(args.name, args.url, args.priority)
+                print(":: repository added")
+                print(json.dumps(config, indent=2))
+            elif args.repo_command == "rm":
+                config = service.remove_repo(args.name)
+                print(":: repository removed")
+                print(json.dumps(config, indent=2))
+            elif args.repo_command == "ls":
+                print(json.dumps(service.repo_settings().get("repos", []), indent=2))
             elif args.repo_command == "show":
                 print(json.dumps(service.repo_settings(), indent=2))
             elif args.repo_command == "index":

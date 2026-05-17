@@ -189,7 +189,14 @@ class RepoConfig:
         self.paths.ensure()
 
     def load(self) -> dict:
-        return read_json(self.paths.repo_config, {})
+        raw = read_json(self.paths.repo_config, {})
+        # Back-compat: older config stored {"url": "..."}.
+        if "repos" not in raw and "url" in raw and isinstance(raw.get("url"), str):
+            raw = {"repos": [{"name": "origin", "url": raw["url"], "priority": 0}]}
+            self.save(raw)
+        if "repos" not in raw:
+            raw = {"repos": []}
+        return raw
 
     def save(self, data: dict) -> None:
         write_json(self.paths.repo_config, data)

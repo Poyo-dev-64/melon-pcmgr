@@ -1,6 +1,6 @@
 # Melon
 
-`Melon` is a sandboxed Python prototype of the package-manager concept shown in the diagram.
+`Melon` is a small package manager for distributing and installing prebuilt packages.
 
 ## Current scope
 
@@ -8,6 +8,7 @@
 - `melon-grow` is a moderator wrapper: builds a package from a buildspec and regenerates `index.json`.
 - `melon-pack` packages already-built files into a `.tar.gz` from a simple `.pkg` recipe plus a `files/` directory.
 - `melon repo set <url>` stores a remote repository base URL.
+- `melon repo add <name> <url> --priority N` supports multiple repositories (higher priority wins).
 - `melon hydrate` pulls `index.json` from a configured remote repo or scans local repo archives.
 - `melon sniff` searches the repo index.
 - `melon plant` resolves dependencies, downloads package archives, verifies SHA256 checksums, and installs payload files into the target root.
@@ -48,6 +49,8 @@ melon --layout system --root /mnt/lfs repo set https://your-host/melon
 melon --layout system --root /mnt/lfs hydrate
 melon --layout system --root /mnt/lfs plant bash
 ```
+
+On Linux, `--layout system` is the default. Use `--layout workspace` to keep everything under a local `.melon/` folder.
 
 ## Recipe format
 
@@ -104,7 +107,7 @@ Moderator workflow:
    - or `melon-pack yourpkg.pkg --out docs/packages`
 2. Regenerate the index:
    - `melon repo index --dir docs`
-3. Regenerate the HTML listing page:
+3. Ensure the HTML listing page exists (usually one-time):
    - `melon repo render --dir docs`
 4. `git add docs && git commit && git push`
 

@@ -87,6 +87,15 @@ Optional but recommended:
   - `melon --layout system --root /tmp/melonroot hydrate`
   - `melon --layout system --root /tmp/melonroot plant <pkg>`
 
+## Multiple Repositories (optional)
+
+Clients can add more than one repo and set priorities:
+
+- `melon repo add core https://example/core --priority 10`
+- `melon repo add extra https://example/extra --priority 0`
+
+When hydrating, higher priority repos override lower priority ones for the same package name.
+
 ## Emergency Rollback
 
 GitHub Pages is deployed from git history, so rollback is:
@@ -112,4 +121,3 @@ Packages may include `pre-install`, `post-install`, `pre-remove`, `post-remove` 
 - Hook side effects are not automatically rolled back.
 
 Treat hooks as “privileged maintainer code”; use sparingly and review carefully.
-

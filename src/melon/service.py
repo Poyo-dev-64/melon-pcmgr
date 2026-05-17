@@ -39,35 +39,60 @@ class MelonService:
         return self.repo_config.load()
 
     def set_repo(self, url: str) -> dict:
-        config = self.repo_config.load()
-        config["url"] = url
+        config = {"repos": [{"name": "origin", "url": url, "priority": 0}]}
         self.repo_config.save(config)
         self.log(f"configured repo {url}")
         return config
 
+    def add_repo(self, name: str, url: str, priority: int = 0) -> dict:
+        config = self.repo_config.load()
+        repos = [r for r in config.get("repos", []) if r.get("name") != name]
+        repos.append({"name": name, "url": url, "priority": int(priority)})
+        repos.sort(key=lambda r: (-int(r.get("priority", 0)), str(r.get("name", ""))))
+        config["repos"] = repos
+        self.repo_config.save(config)
+        self.log(f"added repo {name} {url} prio={priority}")
+        return config
+
+    def remove_repo(self, name: str) -> dict:
+        config = self.repo_config.load()
+        repos = [r for r in config.get("repos", []) if r.get("name") != name]
+        config["repos"] = repos
+        self.repo_config.save(config)
+        self.log(f"removed repo {name}")
+        return config
+
     def hydrate(self) -> dict[str, PackageMeta]:
         config = self.repo_config.load()
-        remote_url = config.get("url", "").strip()
-        if remote_url:
-            index_url = resolve_url(remote_url, "index.json")
-            payload = fetch_json(index_url)
-            packages = {}
-            for name, data in payload.items():
-                packages[name] = PackageMeta(
-                    name=data["name"],
-                    version=data["version"],
-                    description=data.get("description", ""),
-                    source_url=data.get("source_url", ""),
-                    package_url=data.get("package_url", f"packages/{data['name']}-{data['version']}.tar.gz"),
-                    dependencies=list(data.get("dependencies", [])),
-                    sha256=data.get("sha256", ""),
-                    build_configure=list(data.get("build_configure", [])),
-                    build_make=list(data.get("build_make", [])),
-                    install_steps=list(data.get("install_steps", [])),
-                    remove_steps=list(data.get("remove_steps", [])),
-                    patches=list(data.get("patches", [])),
-                )
-            self.log(f"hydrated repository from {index_url} with {len(packages)} packages")
+        repos = list(config.get("repos", []))
+        packages: dict[str, PackageMeta] = {}
+
+        if repos:
+            # Higher priority wins; ties resolved by repo list order after sorting.
+            repos.sort(key=lambda r: -int(r.get("priority", 0)))
+            for repo in repos:
+                base_url = str(repo.get("url", "")).strip()
+                if not base_url:
+                    continue
+                index_url = resolve_url(base_url, "index.json")
+                payload = fetch_json(index_url)
+                for name, data in payload.items():
+                    packages[name] = PackageMeta(
+                        name=data["name"],
+                        version=data["version"],
+                        description=data.get("description", ""),
+                        source_url=data.get("source_url", ""),
+                        package_url=data.get("package_url", f"packages/{data['name']}-{data['version']}.tar.gz"),
+                        repo_url=base_url,
+                        dependencies=list(data.get("dependencies", [])),
+                        sha256=data.get("sha256", ""),
+                        build_configure=list(data.get("build_configure", [])),
+                        build_make=list(data.get("build_make", [])),
+                        install_steps=list(data.get("install_steps", [])),
+                        remove_steps=list(data.get("remove_steps", [])),
+                        patches=list(data.get("patches", [])),
+                    )
+            self.log(f"hydrated repository from {len(repos)} repo(s) with {len(packages)} package(s)")
         else:
             packages = discover_packages(self.paths.repo_dir)
             self.log(f"hydrated repository with {len(packages)} local packages")
@@ -281,6 +306,13 @@ def _default_repo_html() -> str:
         if package_name in holds:
             raise ValueError(f"{package_name} is held; thaw it before removal")
 
+        # Refuse to remove a package that other installed packages depend on.
+        dependents = sorted(
+            name for name, pkg in installed.items() if package_name in (pkg.meta.dependencies or [])
+        )
+        if dependents:
+            raise ValueError(f"{package_name} is required by: {', '.join(dependents)}")
+
         package = installed[package_name]
         archive_path = self._ensure_package_archive(package.meta, lambda _message: None)
         self._verify_archive(package.meta, archive_path)
@@ -407,9 +439,12 @@ def _default_repo_html() -> str:
         if local_archive.exists() and self._archive_matches(package, local_archive):
             return local_archive
 
-        config = self.repo_config.load()
-        remote_url = config.get("url", "").strip()
-        if not remote_url:
+        base_url = (package.repo_url or "").strip()
+        if not base_url:
+            config = self.repo_config.load()
+            repos = list(config.get("repos", []))
+            base_url = (str(repos[0].get("url")).strip() if repos else "")
+        if not base_url:
             if local_archive.exists():
                 raise ValueError(
                     f"sha256 mismatch for cached archive {local_archive.name}; no remote repo configured for repair"
@@ -417,7 +452,7 @@ def _default_repo_html() -> str:
             raise FileNotFoundError(f"missing archive: {local_archive}")
 
         package_target = package.package_url or f"packages/{package.package_filename}"
-        package_url = resolve_url(remote_url, package_target)
+        package_url = resolve_url(base_url, package_target)
         cached_archive = self.paths.package_cache_dir / package.package_filename
         if cached_archive.exists() and self._archive_matches(package, cached_archive):
             return cached_archive

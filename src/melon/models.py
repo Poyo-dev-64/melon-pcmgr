@@ -11,6 +11,7 @@ class PackageMeta:
     description: str = ""
     source_url: str = ""
     package_url: str = ""
+    repo_url: str = ""
     dependencies: list[str] = field(default_factory=list)
     sha256: str = ""
     build_configure: list[str] = field(default_factory=list)
@@ -52,6 +53,7 @@ def package_from_dict(data: dict) -> PackageMeta:
         description=data.get("description", ""),
         source_url=data.get("source_url", ""),
         package_url=data.get("package_url", ""),
+        repo_url=data.get("repo_url", ""),
         dependencies=list(data.get("dependencies", [])),
         sha256=data.get("sha256", ""),
         build_configure=list(data.get("build_configure", [])),
