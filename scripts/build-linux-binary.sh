@@ -18,17 +18,15 @@ SRC_DIR="$SCRIPT_DIR/../src"
 
 rm -rf "$SCRIPT_DIR/../dist" "$SCRIPT_DIR/../build"
 
-ENTRYPOINT=""
-if [ -f "$SRC_DIR/melon/main.py" ]; then
-  ENTRYPOINT="$SRC_DIR/melon/main.py"
-elif [ -f "$SRC_DIR/melon/cli.py" ]; then
-  ENTRYPOINT="$SRC_DIR/melon/cli.py"
-elif [ -f "$SRC_DIR/melon/__main__.py" ]; then
-  ENTRYPOINT="$SRC_DIR/melon/__main__.py"
-else
-  echo "ERROR: could not find an entrypoint (expected ../src/melon/main.py or ../src/melon/cli.py)" 1>&2
+# Static, predictable layout (repo root):
+#   scripts/build-linux-binary.sh
+#   src/melon/main.py
+ENTRYPOINT="$SCRIPT_DIR/../src/melon/main.py"
+if [ ! -f "$ENTRYPOINT" ]; then
+  echo "ERROR: missing entrypoint: $ENTRYPOINT" 1>&2
+  echo "Run from the repo checkout that contains src/melon/main.py" 1>&2
   exit 1
 fi
 
-python -m PyInstaller -F -n melon --paths "$SRC_DIR" "$ENTRYPOINT"
+python -m PyInstaller -F -n melon --paths "$SCRIPT_DIR/../src" "$ENTRYPOINT"
 echo "Built $SCRIPT_DIR/../dist/melon"
