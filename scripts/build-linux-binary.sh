@@ -10,6 +10,5 @@ set -eu
 #   ./scripts/build-linux-binary.sh
 
 rm -rf dist build
-pyinstaller -F -n melon -m melon.main --paths src
+python -m PyInstaller -F -n melon --paths src src/melon/main.py
 echo "Built dist/melon"
-
